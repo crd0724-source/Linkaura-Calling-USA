@@ -1,0 +1,6 @@
+{
+  "name": "LinkAura US Calling",
+  "description": "Internal sales calling system for calling US business prospects from India with browser dialer, call metrics, and contact management.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
