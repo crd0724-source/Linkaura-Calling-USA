@@ -62,18 +62,37 @@ export default function App() {
 
   // Listen to Telephony Provider Status Changes
   useEffect(() => {
-    const unsubscribe = provider.onStatusChange((status, message) => {
+    const unsubscribe = provider.onStatusChange((status, message, details) => {
       setActiveCall((prev) => {
-        const updated = { ...prev, status };
+        const nextPhone = details?.phoneNumber || prev.phoneNumber;
+        let matched = prev.contact;
+        if (details?.direction === 'inbound' && details?.phoneNumber) {
+          matched = dbService.findContactByPhone(details.phoneNumber) || null;
+        }
+
+        const updated: ActiveCallState = {
+          ...prev,
+          status,
+          direction: details?.direction || prev.direction || 'outbound',
+          phoneNumber: nextPhone,
+          callerName: details?.callerName || prev.callerName,
+          contact: matched,
+        };
 
         if (status === 'connected') {
           updated.connectedAt = new Date();
+          if (!updated.startedAt) updated.startedAt = new Date();
         } else if (status === 'ended' || status === 'busy' || status === 'no-answer') {
           updated.endedAt = new Date();
         }
 
         return updated;
       });
+
+      // Switch to dialer tab if an incoming call arrives so user immediately sees Answer/Decline controls
+      if (status === 'ringing' && details?.direction === 'inbound') {
+        setCurrentTab('dialer');
+      }
 
       // If call finished, handle call logging and wrap-up
       if (status === 'ended' || status === 'busy' || status === 'no-answer') {
@@ -223,6 +242,13 @@ export default function App() {
     await provider.hangupCall();
   };
 
+  // Answer incoming call
+  const handleAnswerCall = async () => {
+    if (provider.answerCall) {
+      await provider.answerCall();
+    }
+  };
+
   // Toggle Mute
   const handleToggleMute = () => {
     setActiveCall((prev) => {
@@ -314,6 +340,7 @@ export default function App() {
             <DialerView
               activeCall={activeCall}
               onInitiateCall={handleInitiateCall}
+              onAnswerCall={handleAnswerCall}
               onHangupCall={handleHangupCall}
               onToggleMute={handleToggleMute}
               provider={provider}

@@ -13,7 +13,13 @@ export class TelnyxTelephonyProvider implements TelephonyProvider {
   private callerId: string = '';
   private callerIdConfigured = false;
   private currentStatus: CallStatus = 'idle';
-  private listeners: Set<(status: CallStatus, message?: string) => void> = new Set();
+  private listeners: Set<
+    (
+      status: CallStatus,
+      message?: string,
+      details?: { direction?: 'inbound' | 'outbound'; phoneNumber?: string; callerName?: string }
+    ) => void
+  > = new Set();
   
   // WebRTC Client and Call References
   private client: TelnyxRTC | null = null;
@@ -38,6 +44,14 @@ export class TelnyxTelephonyProvider implements TelephonyProvider {
         this.isConfigured = Boolean(data.configured);
         this.callerId = data.callerId || '';
         this.callerIdConfigured = Boolean(data.callerIdConfigured);
+
+        // Pre-connect WebRTC signaling so browser is registered for incoming PSTN calls
+        if (this.isConfigured && !this.client) {
+          this.getOrInitTelnyxClient().catch((err) => {
+            console.warn('[Telnyx WebRTC Background Connect]:', err.message);
+          });
+        }
+
         return this.isConfigured;
       }
     } catch {
@@ -93,10 +107,23 @@ export class TelnyxTelephonyProvider implements TelephonyProvider {
   }
 
   private handleServerTelephonyEvent(data: any) {
-    if (!this.activeCall || !data) return;
+    if (!data) return;
 
     const eventType = data.type || '';
     const cause = data.cause || '';
+
+    // Handle incoming call notification from server webhook (if Voice API sends call.initiated)
+    if (eventType === 'call.initiated' && data.direction === 'inbound' && this.currentStatus === 'idle') {
+      const incomingNumber = data.from || data.payload?.from || 'Unknown Caller';
+      this.notify('ringing', `Incoming call from ${incomingNumber}`, {
+        direction: 'inbound',
+        phoneNumber: incomingNumber,
+      });
+      audioTelephony.startRingback();
+      return;
+    }
+
+    if (!this.activeCall) return;
 
     if (eventType === 'call.ringing' && this.currentStatus !== 'connected') {
       this.notify('ringing', 'Ringing...');
@@ -157,12 +184,22 @@ export class TelnyxTelephonyProvider implements TelephonyProvider {
     }
   }
 
-  private notify(status: CallStatus, message?: string) {
+  private notify(
+    status: CallStatus,
+    message?: string,
+    details?: { direction?: 'inbound' | 'outbound'; phoneNumber?: string; callerName?: string }
+  ) {
     this.currentStatus = status;
-    this.listeners.forEach((cb) => cb(status, message));
+    this.listeners.forEach((cb) => cb(status, message, details));
   }
 
-  onStatusChange(listener: (status: CallStatus, message?: string) => void): () => void {
+  onStatusChange(
+    listener: (
+      status: CallStatus,
+      message?: string,
+      details?: { direction?: 'inbound' | 'outbound'; phoneNumber?: string; callerName?: string }
+    ) => void
+  ): () => void {
     this.listeners.add(listener);
     return () => {
       this.listeners.delete(listener);
@@ -238,23 +275,57 @@ export class TelnyxTelephonyProvider implements TelephonyProvider {
         const call = notification.call;
         const callState = String(call.state || '').toLowerCase();
         const cause = call.cause || call.causeCode || '';
+        const direction = String(call.direction || '').toLowerCase() as 'inbound' | 'outbound';
 
         switch (callState) {
           case 'trying':
           case 'requesting':
-            this.notify('dialing', 'Dialing destination via Telnyx WebRTC...');
+            this.activeCall = call;
+            this.notify('dialing', 'Dialing destination via Telnyx WebRTC...', { direction: 'outbound' });
             break;
 
           case 'early':
           case 'ringing':
-            this.notify('ringing', 'Ringing...');
-            audioTelephony.startRingback();
+            this.activeCall = call;
+            if (direction === 'inbound') {
+              const incomingNumber =
+                call.options?.remoteCallerNumber ||
+                call.options?.callerNumber ||
+                (call as any).remoteCallerNumber ||
+                (call as any).callerNumber ||
+                'Unknown Caller';
+              const incomingName =
+                call.options?.remoteCallerName ||
+                call.options?.callerName ||
+                (call as any).remoteCallerName ||
+                (call as any).callerName ||
+                '';
+
+              audioTelephony.startRingback();
+              this.notify('ringing', `Incoming call from ${incomingNumber}`, {
+                direction: 'inbound',
+                phoneNumber: incomingNumber,
+                callerName: incomingName,
+              });
+            } else {
+              this.notify('ringing', 'Ringing...', { direction: 'outbound' });
+              audioTelephony.startRingback();
+            }
             break;
 
           case 'active':
+            this.activeCall = call;
             audioTelephony.stopRingback();
             audioTelephony.playConnectedChime();
-            this.notify('connected', 'Call connected via Telnyx');
+            const activePhone =
+              call.options?.remoteCallerNumber ||
+              call.options?.destinationNumber ||
+              call.options?.callerNumber ||
+              '';
+            this.notify('connected', 'Call connected via Telnyx', {
+              direction,
+              phoneNumber: activePhone,
+            });
 
             // Attach remote media stream to playback audio element
             if (call.remoteStream && this.remoteAudioElement) {
@@ -389,6 +460,63 @@ export class TelnyxTelephonyProvider implements TelephonyProvider {
       const error = err as Error;
       console.error('[Telnyx newCall Exception]:', error);
       this.notify('failed', error.message || 'Call initiation failed.');
+      this.cleanupCallMedia();
+      return { success: false, error: error.message };
+    }
+  }
+
+  async answerCall(): Promise<{ success: boolean; error?: string }> {
+    if (!this.activeCall) {
+      return { success: false, error: 'No active incoming call to answer.' };
+    }
+
+    audioTelephony.stopRingback();
+
+    // Ensure remote audio playback element exists in DOM
+    const remoteEl = this.ensureRemoteAudioElement();
+
+    // Acquire microphone stream if not yet initialized
+    try {
+      if (!this.localStream) {
+        this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
+    } catch (err: unknown) {
+      const error = err as Error;
+      console.error('[Telnyx Mic Error on Answer]:', error);
+      this.notify('failed', 'Microphone access denied when answering incoming call.');
+      return { success: false, error: 'Microphone permission denied.' };
+    }
+
+    try {
+      await this.activeCall.answer({
+        remoteElement: remoteEl || undefined,
+        audio: true,
+        video: false,
+      });
+
+      audioTelephony.playConnectedChime();
+      const incomingNumber =
+        this.activeCall.options?.remoteCallerNumber ||
+        this.activeCall.options?.callerNumber ||
+        (this.activeCall as any).remoteCallerNumber ||
+        (this.activeCall as any).callerNumber ||
+        '';
+
+      this.notify('connected', 'Call connected via Telnyx WebRTC', {
+        direction: 'inbound',
+        phoneNumber: incomingNumber,
+      });
+
+      if (this.activeCall.remoteStream && this.remoteAudioElement) {
+        this.remoteAudioElement.srcObject = this.activeCall.remoteStream;
+        this.remoteAudioElement.play().catch(() => {});
+      }
+
+      return { success: true };
+    } catch (err: unknown) {
+      const error = err as Error;
+      console.error('[Telnyx Answer Exception]:', error);
+      this.notify('failed', error.message || 'Failed to answer incoming call.');
       this.cleanupCallMedia();
       return { success: false, error: error.message };
     }

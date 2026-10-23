@@ -21,6 +21,7 @@ import { TelephonyProvider } from '../services/telephony';
 interface DialerViewProps {
   activeCall: ActiveCallState;
   onInitiateCall: (phoneNumber: string, contact?: Contact) => void;
+  onAnswerCall?: () => void;
   onHangupCall: () => void;
   onToggleMute: () => void;
   provider: TelephonyProvider;
@@ -48,6 +49,7 @@ const KEYPAD_BUTTONS = [
 export const DialerView: React.FC<DialerViewProps> = ({
   activeCall,
   onInitiateCall,
+  onAnswerCall,
   onHangupCall,
   onToggleMute,
   provider,
@@ -252,12 +254,20 @@ export const DialerView: React.FC<DialerViewProps> = ({
               <div className="text-center space-y-1">
                 <div
                   className={`text-[11px] uppercase tracking-wider font-semibold flex items-center justify-center gap-1.5 ${
-                    activeCall.status === 'failed' ? 'text-rose-400' : 'text-emerald-400'
+                    activeCall.status === 'failed'
+                      ? 'text-rose-400'
+                      : activeCall.status === 'ringing' && activeCall.direction === 'inbound'
+                      ? 'text-emerald-400'
+                      : 'text-emerald-400'
                   }`}
                 >
                   <span
                     className={`w-2 h-2 rounded-full ${
-                      activeCall.status === 'failed' ? 'bg-rose-400' : 'bg-emerald-400 animate-pulse'
+                      activeCall.status === 'failed'
+                        ? 'bg-rose-400'
+                        : activeCall.status === 'ringing' && activeCall.direction === 'inbound'
+                        ? 'bg-emerald-400 animate-ping'
+                        : 'bg-emerald-400 animate-pulse'
                     }`}
                   />
                   {activeCall.status === 'connected'
@@ -267,7 +277,9 @@ export const DialerView: React.FC<DialerViewProps> = ({
                     : activeCall.status === 'dialing'
                     ? 'Dialing...'
                     : activeCall.status === 'ringing'
-                    ? 'Ringing...'
+                    ? activeCall.direction === 'inbound'
+                      ? 'Incoming Call...'
+                      : 'Ringing...'
                     : activeCall.status === 'busy'
                     ? 'Line Busy'
                     : activeCall.status === 'no-answer'
@@ -279,10 +291,14 @@ export const DialerView: React.FC<DialerViewProps> = ({
                     : 'Calling...'}
                 </div>
                 <div className="text-xl sm:text-2xl font-mono tabular-nums font-bold text-slate-100 tracking-tight">
-                  {formatDuration(activeCall.durationSeconds)}
+                  {activeCall.status === 'ringing' && activeCall.direction === 'inbound'
+                    ? activeCall.phoneNumber || 'Incoming Caller'
+                    : formatDuration(activeCall.durationSeconds)}
                 </div>
                 <div className="text-xs font-mono text-slate-400">
-                  {activeCall.phoneNumber}
+                  {activeCall.status === 'ringing' && activeCall.direction === 'inbound'
+                    ? activeCall.callerName || (matchedContact ? `${matchedContact.companyName} (${matchedContact.contactPerson})` : 'Incoming Telnyx Voice Call')
+                    : activeCall.phoneNumber}
                 </div>
               </div>
             ) : (
@@ -337,34 +353,58 @@ export const DialerView: React.FC<DialerViewProps> = ({
             ))}
           </div>
 
-          {/* Call Controls: Big Call / Hang Up + Mute */}
+          {/* Call Controls: Big Call / Hang Up / Answer + Mute */}
           <div className="pt-2 flex items-center justify-center gap-4">
             {isInCall ? (
-              <>
-                {/* Mute button */}
-                <button
-                  type="button"
-                  onClick={onToggleMute}
-                  className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${
-                    activeCall.isMuted
-                      ? 'bg-amber-600/20 text-amber-400 border border-amber-500/50'
-                      : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                  }`}
-                  title={activeCall.isMuted ? 'Unmute microphone' : 'Mute microphone'}
-                >
-                  {activeCall.isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-                </button>
+              activeCall.status === 'ringing' && activeCall.direction === 'inbound' ? (
+                <>
+                  {/* Incoming Call Answer Button */}
+                  <button
+                    type="button"
+                    onClick={onAnswerCall}
+                    className="h-12 px-7 rounded-full bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-semibold text-sm flex items-center gap-2 transition-all shadow-lg shadow-emerald-600/40 animate-pulse cursor-pointer"
+                  >
+                    <Phone className="w-5 h-5" />
+                    <span>Answer Call</span>
+                  </button>
 
-                {/* Hang up button */}
-                <button
-                  type="button"
-                  onClick={onHangupCall}
-                  className="h-12 px-8 rounded-full bg-red-600 hover:bg-red-500 active:scale-95 text-white font-semibold text-sm flex items-center gap-2 transition-all shadow-lg shadow-red-600/30"
-                >
-                  <PhoneOff className="w-5 h-5" />
-                  <span>Hang Up</span>
-                </button>
-              </>
+                  {/* Incoming Call Decline Button */}
+                  <button
+                    type="button"
+                    onClick={onHangupCall}
+                    className="h-12 px-7 rounded-full bg-rose-600 hover:bg-rose-500 active:scale-95 text-white font-semibold text-sm flex items-center gap-2 transition-all shadow-lg shadow-rose-600/30 cursor-pointer"
+                  >
+                    <PhoneOff className="w-5 h-5" />
+                    <span>Decline</span>
+                  </button>
+                </>
+              ) : (
+                <>
+                  {/* Mute button */}
+                  <button
+                    type="button"
+                    onClick={onToggleMute}
+                    className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${
+                      activeCall.isMuted
+                        ? 'bg-amber-600/20 text-amber-400 border border-amber-500/50'
+                        : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                    }`}
+                    title={activeCall.isMuted ? 'Unmute microphone' : 'Mute microphone'}
+                  >
+                    {activeCall.isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                  </button>
+
+                  {/* Hang up button */}
+                  <button
+                    type="button"
+                    onClick={onHangupCall}
+                    className="h-12 px-8 rounded-full bg-red-600 hover:bg-red-500 active:scale-95 text-white font-semibold text-sm flex items-center gap-2 transition-all shadow-lg shadow-red-600/30"
+                  >
+                    <PhoneOff className="w-5 h-5" />
+                    <span>Hang Up</span>
+                  </button>
+                </>
+              )
             ) : (
               <>
                 {phoneNumber && (
@@ -394,15 +434,24 @@ export const DialerView: React.FC<DialerViewProps> = ({
             )}
           </div>
 
-          {/* Mock Simulation Sandbox Controls (when in call) */}
-          {isInCall && provider.isMock && (
+          {/* Mock Simulation Sandbox Controls */}
+          {provider.isMock && (
             <div className="pt-3 border-t border-slate-800/80">
               <div className="text-[11px] text-slate-400 font-medium mb-2 flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5 text-blue-400" />
                 <span>Simulation Controls (SDR Testing Mode)</span>
               </div>
               <div className="flex flex-wrap gap-2">
-                {activeCall.status === 'ringing' && (
+                {!isInCall && (
+                  <button
+                    type="button"
+                    onClick={() => provider.simulateIncomingCall && provider.simulateIncomingCall('+1 (201) 409-8079', 'Inbound Prospect')}
+                    className="px-2.5 py-1 rounded bg-blue-950 border border-blue-500/40 text-blue-300 text-xs font-medium hover:bg-blue-900/60 transition-colors"
+                  >
+                    Simulate Inbound Ringing
+                  </button>
+                )}
+                {isInCall && activeCall.status === 'ringing' && (
                   <button
                     type="button"
                     onClick={() => provider.simulateAnswer && provider.simulateAnswer()}
@@ -411,20 +460,24 @@ export const DialerView: React.FC<DialerViewProps> = ({
                     Simulate Answer
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={() => provider.simulateNoAnswer && provider.simulateNoAnswer()}
-                  className="px-2.5 py-1 rounded bg-slate-950 border border-slate-700 text-slate-300 text-xs font-medium hover:bg-slate-800 transition-colors"
-                >
-                  Simulate No Answer
-                </button>
-                <button
-                  type="button"
-                  onClick={() => provider.simulateBusy && provider.simulateBusy()}
-                  className="px-2.5 py-1 rounded bg-slate-950 border border-slate-700 text-slate-300 text-xs font-medium hover:bg-slate-800 transition-colors"
-                >
-                  Simulate Busy
-                </button>
+                {isInCall && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => provider.simulateNoAnswer && provider.simulateNoAnswer()}
+                      className="px-2.5 py-1 rounded bg-slate-950 border border-slate-700 text-slate-300 text-xs font-medium hover:bg-slate-800 transition-colors"
+                    >
+                      Simulate No Answer
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => provider.simulateBusy && provider.simulateBusy()}
+                      className="px-2.5 py-1 rounded bg-slate-950 border border-slate-700 text-slate-300 text-xs font-medium hover:bg-slate-800 transition-colors"
+                    >
+                      Simulate Busy
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           )}

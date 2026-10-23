@@ -9,7 +9,13 @@ export class MockTelephonyProvider implements TelephonyProvider {
   isConfigured = false;
 
   private currentStatus: CallStatus = 'idle';
-  private listeners: Set<(status: CallStatus, message?: string) => void> = new Set();
+  private listeners: Set<
+    (
+      status: CallStatus,
+      message?: string,
+      details?: { direction?: 'inbound' | 'outbound'; phoneNumber?: string; callerName?: string }
+    ) => void
+  > = new Set();
   private ringTimer: number | null = null;
   private autoAnswerTimer: number | null = null;
   private currentStream: MediaStream | null = null;
@@ -39,12 +45,22 @@ export class MockTelephonyProvider implements TelephonyProvider {
     }
   }
 
-  private notify(status: CallStatus, message?: string) {
+  private notify(
+    status: CallStatus,
+    message?: string,
+    details?: { direction?: 'inbound' | 'outbound'; phoneNumber?: string; callerName?: string }
+  ) {
     this.currentStatus = status;
-    this.listeners.forEach((cb) => cb(status, message));
+    this.listeners.forEach((cb) => cb(status, message, details));
   }
 
-  onStatusChange(listener: (status: CallStatus, message?: string) => void): () => void {
+  onStatusChange(
+    listener: (
+      status: CallStatus,
+      message?: string,
+      details?: { direction?: 'inbound' | 'outbound'; phoneNumber?: string; callerName?: string }
+    ) => void
+  ): () => void {
     this.listeners.add(listener);
     return () => {
       this.listeners.delete(listener);
@@ -53,7 +69,7 @@ export class MockTelephonyProvider implements TelephonyProvider {
 
   async initiateCall(phoneNumber: string): Promise<{ success: boolean; error?: string }> {
     this.cleanup();
-    this.notify('requesting_mic', 'Checking microphone access...');
+    this.notify('requesting_mic', 'Checking microphone access...', { direction: 'outbound', phoneNumber });
 
     try {
       if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
@@ -69,7 +85,7 @@ export class MockTelephonyProvider implements TelephonyProvider {
     }
 
     // Switch to ringing
-    this.notify('ringing', `Calling ${phoneNumber}...`);
+    this.notify('ringing', `Calling ${phoneNumber}...`, { direction: 'outbound', phoneNumber });
     audioTelephony.startRingback();
 
     // Auto answer after 4.5 seconds to simulate prospect answering
@@ -80,6 +96,21 @@ export class MockTelephonyProvider implements TelephonyProvider {
     }, 4500) as unknown as number;
 
     return { success: true };
+  }
+
+  async answerCall(): Promise<{ success: boolean; error?: string }> {
+    this.simulateAnswer();
+    return { success: true };
+  }
+
+  simulateIncomingCall(callerNumber = '+1 (201) 555-0199', callerName = 'Incoming US Prospect') {
+    this.cleanup();
+    this.notify('ringing', `Incoming call from ${callerNumber}`, {
+      direction: 'inbound',
+      phoneNumber: callerNumber,
+      callerName,
+    });
+    audioTelephony.startRingback();
   }
 
   simulateAnswer() {

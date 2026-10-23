@@ -258,6 +258,9 @@ app.post('/api/telephony/webhook', async (req: Request, res: Response) => {
       client_state: payload?.client_state,
       state: payload?.state,
       cause: payload?.cause,
+      from: payload?.from,
+      to: payload?.to,
+      direction: payload?.direction,
       timestamp: Date.now(),
     });
 

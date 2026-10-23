@@ -9,6 +9,7 @@ export interface TelephonyProvider {
   getProviderInfo(): TelephonyProviderInfo;
   checkMicrophonePermission(): Promise<boolean>;
   initiateCall(phoneNumber: string): Promise<{ success: boolean; error?: string }>;
+  answerCall?(): Promise<{ success: boolean; error?: string }>;
   hangupCall(): Promise<void>;
   sendDTMF(tone: string): void;
   setMuted(muted: boolean): void;
@@ -17,7 +18,14 @@ export interface TelephonyProvider {
   simulateAnswer?(): void;
   simulateNoAnswer?(): void;
   simulateBusy?(): void;
+  simulateIncomingCall?(callerNumber?: string, callerName?: string): void;
 
-  onStatusChange(listener: (status: CallStatus, message?: string) => void): () => void;
+  onStatusChange(
+    listener: (
+      status: CallStatus,
+      message?: string,
+      details?: { direction?: 'inbound' | 'outbound'; phoneNumber?: string; callerName?: string }
+    ) => void
+  ): () => void;
   cleanup(): void;
 }

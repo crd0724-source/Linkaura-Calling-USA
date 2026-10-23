@@ -83,7 +83,9 @@ export interface TelephonyProviderInfo {
 
 export interface ActiveCallState {
   status: CallStatus;
+  direction?: 'inbound' | 'outbound';
   phoneNumber: string;
+  callerName?: string;
   contact?: Contact | null;
   durationSeconds: number;
   isMuted: boolean;
