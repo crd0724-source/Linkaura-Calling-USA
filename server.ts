@@ -6,7 +6,7 @@ import Telnyx from 'telnyx';
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 // Capture raw body for Telnyx Ed25519 webhook signature verification
 app.use(
@@ -276,11 +276,8 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-// Start server if executed directly via node/tsx
-if (process.argv[1] && process.argv[1].endsWith('server.ts')) {
-  app.listen(PORT, () => {
-    console.log(`LinkAura US Calling backend server listening on port ${PORT}`);
-  });
-}
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server listening on port ${PORT}`);
+});
 
 export default app;
