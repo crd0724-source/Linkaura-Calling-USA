@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 import Telnyx from 'telnyx';
 
 dotenv.config();
@@ -269,10 +270,16 @@ app.post('/api/telephony/webhook', async (req: Request, res: Response) => {
 });
 
 // Serve frontend assets if built
-if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, 'dist')));
+const distDir = fs.existsSync(path.join(process.cwd(), 'dist', 'index.html'))
+  ? path.join(process.cwd(), 'dist')
+  : path.basename(__dirname) === 'dist'
+  ? __dirname
+  : path.join(__dirname, 'dist');
+
+if (process.env.NODE_ENV === 'production' || fs.existsSync(path.join(distDir, 'index.html'))) {
+  app.use(express.static(distDir));
   app.get('*', (_req: Request, res: Response) => {
-    res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+    res.sendFile(path.join(distDir, 'index.html'));
   });
 }
 
